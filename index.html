@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>학민정부 공동 게임 개발 (Firebase DB)</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        /* [스타일 유지] */
+        :root { --primary: #0f172a; --sidebar-bg: #1e293b; --accent: #3b82f6; --danger: #ef4444; --warning: #f59e0b; --success: #10b981; --text-light: #f1f5f9; --text-dark: #1e293b; --text-muted: #64748b; --bg-main: #f8fafc; --card-bg: #ffffff; --radius: 12px; --shadow: 0 1px 3px rgba(0,0,0,0.1); --sidebar-width: 200px; }
+        * { box-sizing: border-box; font-family: 'Pretendard', -apple-system, sans-serif; }
+        body { margin: 0; display: flex; height: 100vh; background: var(--bg-main); color: var(--text-dark); overflow: hidden; }
+        aside { width: var(--sidebar-width); background: var(--sidebar-bg); color: var(--text-light); display: flex; flex-direction: column; flex-shrink: 0; z-index: 50; }
+        .aside-header { padding: 15px 12px; background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .aside-header h2 { margin: 0; font-size: 0.75rem; font-weight: 800; color: var(--accent); text-align: center; }
+        .special-menu { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .nav-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+        .nav-item { padding: 10px 14px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: 0.2s; border-left: 3px solid transparent; font-size: 0.8rem; color: #94a3b8; }
+        .nav-item.active { background: rgba(59, 130, 246, 0.15); border-left-color: var(--accent); color: white; }
+        .nav-item.idea-menu { color: var(--warning); font-weight: 700; }
+        .nav-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .add-btn { padding: 10px; margin: 10px 12px 20px; background: var(--accent); color: white; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; display: none; }
+        .admin-mode .add-btn { display: block; }
+        main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        header { background: white; padding: 0 24px; height: 56px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
+        .content-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .quadrant-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1.2fr; gap: 20px; padding: 20px; overflow-y: auto; }
+        .idea-board { flex: 1; padding: 20px; overflow-y: auto; }
+        .idea-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid #e2e8f0; padding: 20px; margin-bottom: 15px; display: flex; justify-content: space-between; }
+        .quadrant { background: white; border-radius: var(--radius); border: 1px solid #e2e8f0; display: flex; flex-direction: column; overflow: hidden; }
+        .q-header { padding: 12px 16px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-weight: 700; font-size: 0.85rem; }
+        .q-content { flex: 1; padding: 16px; overflow-y: auto; }
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background: white; padding: 24px; border-radius: 12px; width: 90%; max-width: 400px; }
+        .btn { padding: 8px 14px; border-radius: 6px; border: none; font-weight: 700; cursor: pointer; }
+        .btn-primary { background: var(--accent); color: white; }
+        #msgBox { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 2000; padding: 10px 25px; border-radius: 8px; background: var(--primary); color: white; display: none; }
+        .admin-only { display: none; }
+        .admin-mode .admin-only { display: inline-flex; }
+    </style>
+</head>
+<body class="">
+
+<aside id="sidebar">
+    <div class="aside-header"><h2>학민정부 공동 게임 개발</h2></div>
+    <div class="special-menu">
+        <div class="nav-item idea-menu active" id="ideaMenuBtn" onclick="switchView('ideas')">
+            <span class="nav-text">💡 아이디어 제출 게시판</span>
+        </div>
+    </div>
+    <div id="navList" class="nav-list"></div>
+    <button class="add-btn" onclick="openModal('createModal')">＋ 새 프로젝트</button>
+</aside>
+
+<main>
+    <header>
+        <div class="top-info"><h1 id="currentPageTitle">불러오는 중...</h1></div>
+        <div class="admin-toggle" onclick="handleAdminClick()" style="cursor:pointer; font-weight:bold; color:var(--text-muted);">ADMIN 🔒</div>
+    </header>
+    <div id="viewContainer" class="content-view"></div>
+</main>
+
+<div id="passwordModal" class="modal"><div class="modal-content"><h3>관리자 인증</h3><input type="password" id="adminPassword" style="width:100%; padding:10px; margin-bottom:10px;"><button class="btn btn-primary" style="width:100%" onclick="checkAdminPassword()">확인</button></div></div>
+<div id="ideaModal" class="modal"><div class="modal-content"><h3>아이디어 제안</h3>
+    <input type="text" id="ideaUser" placeholder="이름" style="width:100%; margin-bottom:10px; padding:8px;">
+    <input type="text" id="ideaUnit" placeholder="단원" style="width:100%; margin-bottom:10px; padding:8px;">
+    <textarea id="ideaLearn" placeholder="학습 내용" style="width:100%; height:100px; margin-bottom:10px; padding:8px;"></textarea>
+    <button class="btn btn-primary" style="width:100%" onclick="saveIdea()">등록하기</button>
+</div></div>
+<div id="createModal" class="modal"><div class="modal-content"><h3>새 프로젝트</h3>
+    <input type="text" id="newSubject" placeholder="프로젝트 이름" style="width:100%; margin-bottom:10px; padding:8px;">
+    <input type="text" id="newUrl" placeholder="URL" style="width:100%; margin-bottom:10px; padding:8px;">
+    <button class="btn btn-primary" style="width:100%" onclick="saveProject()">생성</button>
+</div></div>
+
+<div id="msgBox"></div>
+
+<script>
+    // 2. Firebase 설정 (제공해주신 값 적용)
+    const firebaseConfig = {
+        apiKey: "AIzaSyC2e2hooU2u5I0ankKrxvzCDPC0NuAyRCo",
+        authDomain: "hakmin-game.firebaseapp.com",
+        projectId: "hakmin-game",
+        storageBucket: "hakmin-game.firebasestorage.app",
+        messagingSenderId: "886463342397",
+        appId: "1:886463342397:web:f279bd0ad549cbef234754"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    let activeView = 'ideas';
+    let activePageId = null;
+    let isAdminMode = false;
+    let pages = [];
+    let ideas = [];
+
+    // 3. 데이터 실시간 불러오기
+    function initApp() {
+        // 프로젝트 불러오기
+        db.collection("projects").orderBy("createdAt", "asc").onSnapshot(snapshot => {
+            pages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            render();
+        });
+
+        // 아이디어 불러오기
+        db.collection("ideas").orderBy("createdAt", "desc").onSnapshot(snapshot => {
+            ideas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            render();
+        });
+    }
+
+    // 4. 데이터 저장 로직
+    async function saveIdea() {
+        const user = document.getElementById('ideaUser').value;
+        const unit = document.getElementById('ideaUnit').value;
+        const learn = document.getElementById('ideaLearn').value;
+        if(!user || !learn) return alert("내용을 입력해주세요.");
+
+        await db.collection("ideas").add({
+            user, unit, learn, coins: 0, createdAt: new Date()
+        });
+        closeModal('ideaModal');
+        showMsg("아이디어가 DB에 저장되었습니다!");
+    }
+
+    async function saveProject() {
+        const subject = document.getElementById('newSubject').value;
+        const url = document.getElementById('newUrl').value;
+        await db.collection("projects").add({
+            subject, url, rating: 0, mathConcepts: '', improvements: [], bugs: [], createdAt: new Date()
+        });
+        closeModal('createModal');
+    }
+
+    // 5. 관리자 제어
+    function handleAdminClick() {
+        if(isAdminMode) { isAdminMode = false; document.body.classList.remove('admin-mode'); render(); }
+        else { openModal('passwordModal'); }
+    }
+    function checkAdminPassword() {
+        if(document.getElementById('adminPassword').value === '1234') {
+            isAdminMode = true;
+            document.body.classList.add('admin-mode');
+            closeModal('passwordModal');
+            render();
+        } else { alert("비밀번호가 틀렸습니다."); }
+    }
+
+    // [UI 렌더링 함수들]
+    function switchView(view, id = null) { activeView = view; activePageId = id; render(); }
+
+    function render() {
+        renderSidebar();
+        const container = document.getElementById('viewContainer');
+        const titleEl = document.getElementById('currentPageTitle');
+
+        if (activeView === 'ideas') {
+            titleEl.innerText = "💡 아이디어 게시판";
+            container.innerHTML = `<div class="idea-board">
+                <button class="btn btn-primary" style="margin-bottom:20px;" onclick="openModal('ideaModal')">아이디어 제안하기</button>
+                ${ideas.map(i => `
+                    <div class="idea-card">
+                        <div>
+                            <strong>${i.user}</strong> | ${i.unit}<br>
+                            <p>${i.learn}</p>
+                            ${i.coins > 0 ? `<span style="color:orange">💰 ${i.coins} 코인 보상됨</span>` : ''}
+                        </div>
+                        ${isAdminMode ? `<button class="btn" onclick="rewardIdea('${i.id}')">보상</button>` : ''}
+                    </div>
+                `).join('')}
+            </div>`;
+        } else {
+            const page = pages.find(p => p.id === activePageId);
+            if(!page) return;
+            titleEl.innerText = page.subject;
+            container.innerHTML = `<div class="quadrant-grid">
+                <div class="quadrant"><div class="q-header">🚀 게임 링크</div><div class="q-content"><a href="${page.url}" target="_blank">${page.url}</a></div></div>
+                <div class="quadrant"><div class="q-header">📐 수학 개념</div><div class="q-content">${page.mathConcepts || '미등록'}</div></div>
+                <div class="quadrant"><div class="q-header">💡 개선 의견</div><div class="q-content">등록된 의견이 없습니다.</div></div>
+                <div class="quadrant"><div class="q-header">🐛 버그 신고</div><div class="q-content">깨끗한 상태입니다.</div></div>
+            </div>`;
+        }
+    }
+
+    function renderSidebar() {
+        const nav = document.getElementById('navList');
+        nav.innerHTML = pages.map(p => `
+            <div class="nav-item ${activePageId === p.id ? 'active' : ''}" onclick="switchView('project', '${p.id}')">
+                <span class="nav-text">${p.subject}</span>
+            </div>
+        `).join('');
+    }
+
+    // 헬퍼 함수
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    function showMsg(m) { const b = document.getElementById('msgBox'); b.innerText = m; b.style.display='block'; setTimeout(()=>b.style.display='none', 2000); }
+
+    window.onload = initApp;
+</script>
+</body>
+</html>
